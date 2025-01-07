@@ -6,10 +6,8 @@ hangupButton.disabled = true;
 
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
-const localAudioSelect = document.getElementById('localAudioSelect');
-const remoteAudioSelect = document.getElementById('remoteAudioSelect');
 
-let localStream, videoStream, combinedStream, remoteStream;
+let localStream, combinedStream;
 let senderPC;
 let receiverPC;
 
@@ -60,43 +58,19 @@ receiverChannel.onmessage = async (e) => {
   }
 };
 
-async function getAudioDevices() {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  const audioDevices = devices.filter(device => device.kind === 'audioinput');
-  const audioOutputDevices = devices.filter(device => device.kind === 'audiooutput');
-
-  audioDevices.forEach(device => {
-    const option = document.createElement('option');
-    option.value = device.deviceId;
-    option.text = device.label || `Microphone ${localAudioSelect.length + 1}`;
-    localAudioSelect.appendChild(option);
-  });
-
-  audioOutputDevices.forEach(device => {
-    const option = document.createElement('option');
-    option.value = device.deviceId;
-    option.text = device.label || `Speaker ${remoteAudioSelect.length + 1}`;
-    remoteAudioSelect.appendChild(option);
-  });
-}
-
-getAudioDevices();
-
 startButton.onclick = async () => {
   console.log('Start button clicked');
-  const selectedAudioDeviceId = localAudioSelect.value;
-
-  const micAudioStream = await navigator.mediaDevices.getUserMedia({
-    audio: { deviceId: selectedAudioDeviceId ? { exact: selectedAudioDeviceId } : undefined }
-  });
-  const stream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
+  //localStream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
+  //localVideo.srcObject = localStream;
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
   const ac = new AudioContext();
   const dest = ac.createMediaStreamDestination();
-  const micSource = ac.createMediaStreamSource(micAudioStream);
-  micSource.connect(dest);
+  const osc = ac.createOscillator();
+  osc.connect(dest);
+  osc.start(0);
+  osc.stop(ac.currentTime + 10);
 
-  videoStream = new MediaStream([...stream.getVideoTracks()]);
-  combinedStream = new MediaStream([...dest.stream.getAudioTracks(), ...stream.getAudioTracks()]);
+  combinedStream = new MediaStream([...dest.stream.getAudioTracks(), ...stream.getAudioTracks(), ...stream.getVideoTracks()]);
   
   startButton.disabled = true;
   hangupButton.disabled = false;
@@ -118,6 +92,8 @@ async function hangup() {
     receiverPC.close();
     receiverPC = null;
   }
+  localStream.getTracks().forEach(track => track.stop());
+  localStream = null;
   startButton.disabled = false;
   hangupButton.disabled = true;
 }
@@ -137,25 +113,8 @@ function createSenderPeerConnection() {
     console.log('Sending ICE candidate from sender:', message);
     senderChannel.postMessage(message);
   };
+  // localStream.getTracks().forEach(track => senderPC.addTrack(track, localStream));
   combinedStream.getTracks().forEach(track => senderPC.addTrack(track, combinedStream));
-  videoStream.getTracks().forEach(track => senderPC.addTrack(track, videoStream));
-}
-
-async function playAudioOnDevice(stream, deviceId) {
-  const audioElement = document.createElement('audio');
-  audioElement.srcObject = stream;
-  audioElement.autoplay = true;
-  document.body.appendChild(audioElement);
-
-  try {
-    await navigator.mediaDevices.getUserMedia({
-      audio: true
-    });
-    await audioElement.setSinkId(deviceId);
-    console.log(`Audio is being played on device: ${deviceId}`);
-  } catch (error) {
-    console.error('Error setting audio output device:', error);
-  }
 }
 
 function createReceiverPeerConnection() {
@@ -173,28 +132,15 @@ function createReceiverPeerConnection() {
     console.log('Sending ICE candidate from receiver:', message);
     receiverChannel.postMessage(message);
   };
-
   receiverPC.ontrack = e => {
-    if (e.track.kind === 'audio') {
-      console.log('Received remote audio track');
-      if (e.streams && e.streams[0]) {
-        remoteStream = e.streams[0];
-      } else {
-        if (!remoteStream) {
-          remoteStream = new MediaStream();
-        }
-        remoteStream.addTrack(e.track);
-      }
-    }
-    if (e.track.kind === 'video') {
-      console.log('Received remote video track');
-      remoteVideo.srcObject = e.streams[0];
-    }
+    console.log('Received remote track');
+    remoteVideo.srcObject = e.streams[0];
   };
 }
 
 async function makeCall() {
   createSenderPeerConnection();
+  // createReceiverPeerConnection();
 
   const offer = await senderPC.createOffer();
   await senderPC.setLocalDescription(offer);
@@ -222,8 +168,6 @@ async function handleAnswer(answer) {
     return;
   }
   await senderPC.setRemoteDescription(new RTCSessionDescription(answer));
-  const selectedAudioOutputDeviceId = remoteAudioSelect.value;
-  playAudioOnDevice(remoteStream, selectedAudioOutputDeviceId);
 }
 
 async function handleCandidate(candidate, pc) {
