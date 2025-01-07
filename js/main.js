@@ -93,10 +93,13 @@ startButton.onclick = async () => {
   const ac = new AudioContext();
   const dest = ac.createMediaStreamDestination();
   const micSource = ac.createMediaStreamSource(micAudioStream);
+  const systemAudioSource = ac.createMediaStreamSource(stream);
   micSource.connect(dest);
+  systemAudioSource.connect(dest);
 
   videoStream = new MediaStream([...stream.getVideoTracks()]);
-  combinedStream = new MediaStream([...dest.stream.getAudioTracks(), ...stream.getAudioTracks()]);
+  combinedStream = new MediaStream([...dest.stream.getAudioTracks()]);
+
   
   startButton.disabled = true;
   hangupButton.disabled = false;
