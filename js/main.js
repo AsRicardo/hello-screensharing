@@ -12,6 +12,7 @@ const remoteAudioSelect = document.getElementById('remoteAudioSelect');
 let localStream, videoStream, combinedStream, remoteStream;
 let senderPC;
 let receiverPC;
+let ac;
 
 const senderChannel = new BroadcastChannel('webrtc');
 const receiverChannel = new BroadcastChannel('webrtc');
@@ -61,6 +62,8 @@ receiverChannel.onmessage = async (e) => {
 };
 
 async function getAudioDevices() {
+  await navigator.mediaDevices.getUserMedia({ audio: true });   // request audio permission
+
   const devices = await navigator.mediaDevices.enumerateDevices();
   const audioDevices = devices.filter(device => device.kind === 'audioinput');
   const audioOutputDevices = devices.filter(device => device.kind === 'audiooutput');
@@ -86,11 +89,17 @@ startButton.onclick = async () => {
   console.log('Start button clicked');
   const selectedAudioDeviceId = localAudioSelect.value;
 
-  const micAudioStream = await navigator.mediaDevices.getUserMedia({
-    audio: { deviceId: selectedAudioDeviceId ? { exact: selectedAudioDeviceId } : undefined }
-  });
-  const stream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
-  const ac = new AudioContext();
+  let micAudioStream, stream;
+  try {
+    micAudioStream = await navigator.mediaDevices.getUserMedia({
+      audio: { deviceId: selectedAudioDeviceId ? { exact: selectedAudioDeviceId } : undefined }
+    });
+    stream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
+  } catch (error) {
+    console.error('Error access: ', error.message);
+    return;
+  }
+  ac  = new AudioContext();
   const dest = ac.createMediaStreamDestination();
   const micSource = ac.createMediaStreamSource(micAudioStream);
   const systemAudioSource = ac.createMediaStreamSource(stream);
@@ -113,6 +122,7 @@ hangupButton.onclick = async () => {
 };
 
 async function hangup() {
+  console.log('Hanging up');
   if (senderPC) {
     senderPC.close();
     senderPC = null;
@@ -121,12 +131,17 @@ async function hangup() {
     receiverPC.close();
     receiverPC = null;
   }
+
+  ac.close();
+  console.log('audio context closed');
+
   startButton.disabled = false;
   hangupButton.disabled = true;
 }
 
 function createSenderPeerConnection() {
   senderPC = new RTCPeerConnection();
+  senderPC.onclose = () => {console.log('Sender peer connection closed');};
   senderPC.onicecandidate = e => {
     const message = {
       type: 'candidate',
@@ -163,6 +178,7 @@ async function playAudioOnDevice(stream, deviceId) {
 
 function createReceiverPeerConnection() {
   receiverPC = new RTCPeerConnection();
+  receiverPC.onclose = () => {console.log('Receiver peer connection closed');};
   receiverPC.onicecandidate = e => {
     const message = {
       type: 'candidate',
